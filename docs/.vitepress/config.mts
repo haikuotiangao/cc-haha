@@ -1,4 +1,5 @@
 import { defineConfig } from 'vitepress'
+import { withMermaid } from 'vitepress-plugin-mermaid'
 
 // GitHub-compatible slugify (matches github-slugger algorithm)
 // Makes heading anchor IDs consistent between VitePress and GitHub rendering
@@ -175,7 +176,7 @@ const enSidebar = [
   },
 ]
 
-export default defineConfig({
+export default withMermaid(defineConfig({
   title: 'Claude Code Haha',
   description: '基于 Claude Code 泄露源码修复的本地可运行版本，支持接入任意 Anthropic 兼容 API',
   lastUpdated: true,
@@ -244,4 +245,4 @@ export default defineConfig({
       copyright: 'Copyright 2026 Claude Code Haha Contributors',
     },
   },
-})
+}))
