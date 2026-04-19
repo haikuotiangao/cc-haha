@@ -394,12 +394,6 @@ pub fn run() {
             // 让 adapter 连上动态端口。
             spawn_and_track_adapters_sidecar(&app.handle());
 
-            let _window = app.get_webview_window("main").unwrap();
-
-            // Windows: hide native decorations — frontend renders custom titlebar
-            #[cfg(target_os = "windows")]
-            let _ = _window.set_decorations(false);
-
             Ok(())
         })
         .build(tauri::generate_context!())
