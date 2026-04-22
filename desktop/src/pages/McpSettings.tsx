@@ -229,6 +229,14 @@ function scopeLabel(server: McpServerRecord, t: ReturnType<typeof useTranslation
   return t(`settings.mcp.scope.${group}`)
 }
 
+function StatusBadge({ server }: { server: McpServerRecord }) {
+  return (
+    <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${STATUS_TONE[server.status]}`}>
+      {server.statusLabel}
+    </span>
+  )
+}
+
 function getServerIdentityKey(server: Pick<McpServerRecord, 'name' | 'scope' | 'projectPath'>) {
   if (server.scope === 'local' || server.scope === 'project') {
     return `${server.scope}:${server.projectPath ?? ''}:${server.name}`
@@ -358,9 +366,7 @@ function ServerRow({
       <div className="min-w-0">
         <div className="flex items-center gap-3 mb-2 min-w-0">
           <div className="text-[1.05rem] font-semibold text-[var(--color-text-primary)] truncate">{server.name}</div>
-          <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${STATUS_TONE[server.status]}`}>
-            {server.statusLabel}
-          </span>
+          <StatusBadge server={server} />
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--color-text-tertiary)]">
           <span className="rounded-full bg-[var(--color-surface-hover)] px-2 py-1 font-medium text-[var(--color-text-secondary)]">
@@ -516,7 +522,19 @@ export function McpSettings() {
   }
 
   const handleReconnect = async (server: McpServerRecord) => {
+    const optimistic = {
+      ...server,
+      status: 'checking' as const,
+      statusLabel: t('status.reconnecting'),
+      statusDetail: undefined,
+    }
+
     setBusyServerName(server.name)
+    setView((current) => {
+      if (current.type !== 'details' && current.type !== 'edit') return current
+      if (getServerIdentityKey(current.server) !== getServerIdentityKey(server)) return current
+      return { ...current, server: optimistic }
+    })
     try {
       const updated = await reconnectServer(server, resolveOperationCwd(server))
       addToast({
@@ -528,6 +546,11 @@ export function McpSettings() {
       if (view.type === 'edit') setView({ type: 'edit', server: updated })
       if (view.type === 'details') setView({ type: 'details', server: updated })
     } catch (error) {
+      setView((current) => {
+        if (current.type !== 'details' && current.type !== 'edit') return current
+        if (getServerIdentityKey(current.server) !== getServerIdentityKey(server)) return current
+        return { ...current, server }
+      })
       addToast({
         type: 'error',
         message: error instanceof Error ? error.message : t('settings.mcp.toast.reconnectFailed'),
@@ -669,6 +692,12 @@ export function McpSettings() {
             <div>
               <h2 className="text-[2.2rem] font-semibold tracking-[-0.03em] text-[var(--color-text-primary)]">{server.name}</h2>
               <p className="mt-3 text-base text-[var(--color-text-secondary)]">{server.summary}</p>
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <StatusBadge server={server} />
+                {server.statusDetail && (
+                  <span className="text-sm text-[var(--color-text-tertiary)]">{server.statusDetail}</span>
+                )}
+              </div>
             </div>
             {server.canReconnect && (
               <Button variant="secondary" onClick={() => handleReconnect(server)} loading={busyServerName === server.name}>
@@ -724,6 +753,14 @@ export function McpSettings() {
               <p className="mt-3 text-base text-[var(--color-text-secondary)]">
                 {editing ? t('settings.mcp.form.editHint') : t('settings.mcp.form.createHint')}
               </p>
+              {editing && targetServer && (
+                <div className="mt-4 flex flex-wrap items-center gap-3">
+                  <StatusBadge server={targetServer} />
+                  {targetServer.statusDetail && (
+                    <span className="text-sm text-[var(--color-text-tertiary)]">{targetServer.statusDetail}</span>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="flex items-center gap-3">

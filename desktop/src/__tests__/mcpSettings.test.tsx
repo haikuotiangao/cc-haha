@@ -224,4 +224,54 @@ describe('McpSettings', () => {
 
     expect(toggleServer).toHaveBeenCalledWith(server, '/workspace/project')
   })
+
+  it('shows reconnecting status immediately in the detail view', async () => {
+    let resolveReconnect: ((value: typeof server) => void) | null = null
+    const server = {
+      name: 'plugin:telegram:telegram',
+      scope: 'dynamic',
+      transport: 'stdio',
+      enabled: true,
+      status: 'failed' as 'connected' | 'needs-auth' | 'failed' | 'disabled' | 'checking',
+      statusLabel: 'Unavailable',
+      statusDetail: 'Timed out' as string | undefined,
+      configLocation: '/tmp/config',
+      summary: 'bun run start',
+      canEdit: false,
+      canRemove: false,
+      canReconnect: true,
+      canToggle: true,
+      config: { type: 'stdio' as const, command: 'bun', args: ['run', 'start'], env: {} },
+    }
+    const reconnectServer = vi.fn().mockImplementation(() => new Promise<typeof server>((resolve) => {
+      resolveReconnect = resolve
+    }))
+
+    useMcpStore.setState({
+      servers: [server],
+      reconnectServer,
+    })
+
+    render(<McpSettings />)
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Open plugin:telegram:telegram' }))
+    })
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /reconnect/i }))
+    })
+
+    expect(screen.getAllByText('Reconnecting...').length).toBeGreaterThan(0)
+    expect(reconnectServer).toHaveBeenCalledWith(server, '/workspace/project')
+
+    await act(async () => {
+      resolveReconnect?.({
+        ...server,
+        status: 'connected',
+        statusLabel: 'Connected',
+        statusDetail: undefined,
+      })
+    })
+  })
 })
