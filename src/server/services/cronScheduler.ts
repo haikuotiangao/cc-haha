@@ -15,6 +15,10 @@ import * as crypto from 'crypto'
 import { CronService, type CronTask } from './cronService.js'
 import { SessionService } from './sessionService.js'
 import { sendTaskNotification } from './notificationService.js'
+import {
+  resolveClaudeCliLauncher,
+  buildClaudeCliArgs,
+} from '../../utils/desktopBundledCli.js'
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -48,7 +52,8 @@ export type TaskRun = {
 function extractAssistantText(raw: string): string {
   if (!raw) return ''
   const lines = raw.split('\n')
-  const parts: string[] = []
+  const assistantParts: string[] = []
+  let resultText = ''
 
   for (const line of lines) {
     if (!line.trim()) continue
@@ -66,23 +71,34 @@ function extractAssistantText(raw: string): string {
       if (!Array.isArray(content)) continue
       for (const block of content) {
         if (block.type === 'text' && block.text?.trim()) {
-          parts.push(block.text.trim())
+          assistantParts.push(block.text.trim())
         }
         // Skip tool_use, thinking blocks
       }
     }
 
-    if (type === 'result') {
+    if (type === 'result' && !resultText) {
       const result = parsed?.result
       if (typeof result === 'string' && result.trim()) {
-        parts.push(result.trim())
+        resultText = result.trim()
       } else if (result?.message?.trim()) {
-        parts.push(result.message.trim())
+        resultText = result.message.trim()
       }
     }
   }
 
-  return parts.join('\n\n')
+  // Prefer assistant text; fall back to result only if no assistant text found
+  if (assistantParts.length > 0) {
+    // Deduplicate: the AI sometimes emits the same text block twice
+    const seen = new Set<string>()
+    const unique = assistantParts.filter((p) => {
+      if (seen.has(p)) return false
+      seen.add(p)
+      return true
+    })
+    return unique.join('\n\n')
+  }
+  return resultText
 }
 
 // ─── Cron expression matching ──────────────────────────────────────────────────
@@ -396,10 +412,40 @@ export class CronScheduler {
     // Persist the "running" state
     await appendRun(run)
 
-    // Resolve paths relative to project root
-    const projectRoot = path.resolve(import.meta.dir, '../../..')
-    const cliPath = path.join(projectRoot, 'src/entrypoints/cli.tsx')
-    const preloadPath = path.join(projectRoot, 'preload.ts')
+    // Resolve CLI path — use same approach as conversationService.ts
+    // so that bundled desktop sidecar can find the CLI correctly.
+    const launcher = resolveClaudeCliLauncher({
+      cliPath: process.env.CLAUDE_CLI_PATH,
+      execPath: process.execPath,
+    })
+
+    // Build permission args — same logic as conversationService.getPermissionArgs
+    const permissionArgs: string[] = []
+    if (task.permissionMode === 'bypassPermissions') {
+      permissionArgs.push('--dangerously-skip-permissions')
+    }
+
+    let cliArgs: string[]
+    if (!launcher) {
+      // Fallback: use the installed claude-haha CLI directly
+      const cliExe =
+        process.platform === 'win32'
+          ? path.join(os.homedir(), '.local', 'bin', 'claude-haha.exe')
+          : path.join(os.homedir(), '.local', 'bin', 'claude-haha')
+      cliArgs = [cliExe, '--print', '--verbose', '--input-format', 'stream-json', '--output-format', 'stream-json', ...permissionArgs]
+    } else {
+      const baseArgs = [
+        '--print',
+        '--verbose',
+        '--input-format',
+        'stream-json',
+        '--output-format',
+        'stream-json',
+        ...permissionArgs,
+        ...(sessionId ? ['--session-id', sessionId] : []),
+      ]
+      cliArgs = buildClaudeCliArgs(launcher, baseArgs, process.env.CLAUDE_APP_ROOT)
+    }
 
     const inputPayload = JSON.stringify({
       type: 'user',
@@ -411,27 +457,19 @@ export class CronScheduler {
       session_id: sessionId || '',
     }) + '\n'
 
-    const proc = Bun.spawn(
-      [
-        'bun',
-        '--preload',
-        preloadPath,
-        cliPath,
-        '--print',
-        '--verbose',
-        '--input-format',
-        'stream-json',
-        '--output-format',
-        'stream-json',
-        ...(sessionId ? ['--session-id', sessionId] : []),
-      ],
-      {
-        stdin: 'pipe',
-        stdout: 'pipe',
-        stderr: 'pipe',
-        cwd: workDir,
+    const proc = Bun.spawn(cliArgs, {
+      stdin: 'pipe',
+      stdout: 'pipe',
+      stderr: 'pipe',
+      cwd: workDir,
+      env: {
+        ...process.env,
+        // Ensure the CLI uses the correct config dir so sessions/tasks files
+        // are placed in the right ~/.claude directory.
+        CLAUDE_CONFIG_DIR:
+          process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'),
       },
-    )
+    })
 
     this.runningTasks.set(task.id, { proc, startedAt: Date.now(), runId })
 

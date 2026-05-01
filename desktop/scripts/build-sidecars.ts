@@ -71,6 +71,7 @@ function mapTargetTripleToBun(triple: string) {
       return 'bun-darwin-arm64'
     case 'x86_64-apple-darwin':
       return 'bun-darwin-x64'
+    case 'x86_64-pc-windows-gnu':
     case 'x86_64-pc-windows-msvc':
       return 'bun-windows-x64'
     case 'aarch64-pc-windows-msvc':
