@@ -32,6 +32,7 @@ export type SessionListItem = {
   projectPath: string
   workDir: string | null
   workDirExists: boolean
+  source?: 'local' | 'adapter'
 }
 
 export type SessionDetail = SessionListItem & {
@@ -983,6 +984,25 @@ export class SessionService {
   // --------------------------------------------------------------------------
 
   /**
+   * Read adapter-sessions.json to get session IDs used by IM adapters.
+   */
+  private async getAdapterSessionIds(): Promise<Set<string>> {
+    try {
+      const configDir = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude')
+      const filePath = path.join(configDir, 'adapter-sessions.json')
+      const raw = await fs.readFile(filePath, 'utf-8')
+      const data = JSON.parse(raw) as Record<string, { sessionId?: string }>
+      const ids = new Set<string>()
+      for (const entry of Object.values(data)) {
+        if (entry?.sessionId) ids.add(entry.sessionId)
+      }
+      return ids
+    } catch {
+      return new Set()
+    }
+  }
+
+  /**
    * List all sessions, optionally filtered by project path.
    */
   async listSessions(options?: {
@@ -991,6 +1011,7 @@ export class SessionService {
     offset?: number
   }): Promise<{ sessions: SessionListItem[]; total: number }> {
     const sessionFiles = await this.discoverSessionFiles(options?.project)
+    const adapterIds = await this.getAdapterSessionIds()
 
     // Build session list items with metadata from file stats & first entries
     const items: SessionListItem[] = []
@@ -1027,6 +1048,7 @@ export class SessionService {
           projectPath: projectDir,
           workDir,
           workDirExists,
+          source: adapterIds.has(sessionId) ? 'adapter' : 'local',
         })
       } catch {
         // Skip unreadable files

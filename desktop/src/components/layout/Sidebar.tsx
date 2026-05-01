@@ -52,7 +52,7 @@ export function Sidebar() {
   }, [contextMenu])
 
   const filteredSessions = useMemo(() => {
-    let result = sessions
+    let result = sessions.filter((s) => s.source !== 'adapter')
     if (selectedProjects.length > 0) {
       result = result.filter((s) => selectedProjects.includes(s.projectPath))
     }
