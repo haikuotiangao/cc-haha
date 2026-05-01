@@ -158,7 +158,10 @@ async function listSessions(url: URL): Promise<Response> {
   }
 
   const result = await sessionService.listSessions({ project, limit, offset })
-  return Response.json(result)
+  // Filter out adapter sessions (Feishu/Telegram) from the sidebar list.
+  // They are still accessible via direct sessionId lookup (e.g., task run history).
+  const filtered = result.sessions.filter((s) => s.source !== 'adapter')
+  return Response.json({ sessions: filtered, total: filtered.length })
 }
 
 async function getSession(sessionId: string): Promise<Response> {
