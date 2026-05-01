@@ -158,9 +158,9 @@ async function listSessions(url: URL): Promise<Response> {
   }
 
   const result = await sessionService.listSessions({ project, limit, offset })
-  // Filter out adapter sessions (Feishu/Telegram) from the sidebar list.
+  // Filter out adapter and cron sessions from the sidebar list.
   // They are still accessible via direct sessionId lookup (e.g., task run history).
-  const filtered = result.sessions.filter((s) => s.source !== 'adapter')
+  const filtered = result.sessions.filter((s) => s.source !== 'adapter' && s.source !== 'cron')
   return Response.json({ sessions: filtered, total: filtered.length })
 }
 

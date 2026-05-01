@@ -32,7 +32,7 @@ export type SessionListItem = {
   projectPath: string
   workDir: string | null
   workDirExists: boolean
-  source?: 'local' | 'adapter'
+  source?: 'local' | 'adapter' | 'cron'
 }
 
 export type SessionDetail = SessionListItem & {
@@ -45,6 +45,7 @@ export type SessionLaunchInfo = {
   workDir: string
   transcriptMessageCount: number
   customTitle: string | null
+  source?: 'local' | 'adapter' | 'cron'
 }
 
 export type TrimSessionResult = {
@@ -1039,6 +1040,15 @@ export class SessionService {
           }
         }
 
+        // Determine source: prefer sessionSource from session-meta, fall back to adapter lookup
+        let source: 'local' | 'adapter' | 'cron' = adapterIds.has(sessionId) ? 'adapter' : 'local'
+        for (const e of entries) {
+          if (e.type === 'session-meta' && e.sessionSource) {
+            source = e.sessionSource as 'local' | 'adapter' | 'cron'
+            break
+          }
+        }
+
         items.push({
           id: sessionId,
           title,
@@ -1048,7 +1058,7 @@ export class SessionService {
           projectPath: projectDir,
           workDir,
           workDirExists,
-          source: adapterIds.has(sessionId) ? 'adapter' : 'local',
+          source,
         })
       } catch {
         // Skip unreadable files
@@ -1127,7 +1137,7 @@ export class SessionService {
   /**
    * Create a new session file for the given working directory.
    */
-  async createSession(workDir?: string): Promise<{ sessionId: string }> {
+  async createSession(workDir?: string, metadata?: { source?: 'local' | 'adapter' | 'cron' }): Promise<{ sessionId: string }> {
     // Default to user home directory when no workDir specified
     const resolvedWorkDir = workDir || os.homedir()
 
@@ -1174,11 +1184,14 @@ export class SessionService {
     }
 
     // Store actual workDir for later retrieval
-    const metaEntry = {
+    const metaEntry: Record<string, unknown> = {
       type: 'session-meta',
       isMeta: true,
       workDir: absWorkDir,
       timestamp: now,
+    }
+    if (metadata?.source) {
+      metaEntry.sessionSource = metadata.source
     }
 
     await fs.writeFile(filePath, JSON.stringify(initialEntry) + '\n' + JSON.stringify(metaEntry) + '\n', 'utf-8')
@@ -1258,6 +1271,7 @@ export class SessionService {
     const workDir = this.resolveWorkDirFromEntries(entries, found.projectDir) || process.cwd()
     let customTitle: string | null = null
     let transcriptMessageCount = 0
+    let source: 'local' | 'adapter' | 'cron' | undefined
 
     for (const entry of entries) {
       if (entry.type === 'custom-title' && typeof entry.customTitle === 'string') {
@@ -1270,6 +1284,9 @@ export class SessionService {
       ) {
         transcriptMessageCount++
       }
+      if (entry.type === 'session-meta' && entry.sessionSource) {
+        source = entry.sessionSource as 'local' | 'adapter' | 'cron'
+      }
     }
 
     return {
@@ -1278,6 +1295,7 @@ export class SessionService {
       workDir,
       transcriptMessageCount,
       customTitle,
+      source,
     }
   }
 
